@@ -1,0 +1,129 @@
+name: Daily job scan
+
+on:
+  # Manual runs only, so a fork of this repository never starts scanning on its
+  # own or committing to itself.
+  workflow_dispatch:
+
+  # Uncomment to run daily. Only do this in a PRIVATE repo, because the workflow
+  # commits your scored job history to data/.
+  #
+  # 11:17 UTC = 06:17 ET (EST) / 07:17 ET (EDT). GitHub's scheduler is
+  # best-effort and runs late under load; :17 past the hour is less contended
+  # than the hour itself.
+  #
+  # schedule:
+  #   - cron: "17 11 * * *"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: job-scan
+  cancel-in-progress: false
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run scan
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          ADZUNA_APP_ID: ${{ secrets.ADZUNA_APP_ID }}
+          ADZUNA_APP_KEY: ${{ secrets.ADZUNA_APP_KEY }}
+          USAJOBS_EMAIL: ${{ secrets.USAJOBS_EMAIL }}
+          USAJOBS_KEY: ${{ secrets.USAJOBS_KEY }}
+        run: python -m agent.main
+
+      - name: Email digest
+        if: success()
+        uses: dawidd6/action-send-mail@v3
+        with:
+          server_address: smtp.gmail.com
+          server_port: 465
+          secure: true
+          username: ${{ secrets.MAIL_USERNAME }}
+          password: ${{ secrets.MAIL_PASSWORD }}
+          subject: "Job scan — ${{ github.run_number }}"
+          to: ${{ secrets.MAIL_TO }}
+          from: Job Agent
+          html_body: file://digest.html
+          convert_markdown: false
+
+      - name: Upload digest as artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: digest
+          path: digest.html
+          retention-days: 30
+
+      # State has to persist between runs or dedup and the accumulated log both
+      # reset daily, so the workflow commits data/ back to the repository.
+      #
+      # `-f` is required: data/ is gitignored, deliberately. The ignore rule
+      # protects you locally — a stray `git add -A` cannot publish your job log —
+      # while this one step, which only ever runs in CI, opts that directory back
+      # in. If you would rather data/ never enter git at all, delete this step
+      # and the run becomes stateless: every posting looks new every day.
+      #
+      # ⚠️  This means the repository you run this in accumulates your scored job
+      #     history. Keep it PRIVATE. See the README.
+      - name: Commit state
+        if: success()
+        run: |
+          git config user.name  "job-agent"
+          git config user.email "actions@github.com"
+          git add -f data/
+          git diff --staged --quiet || git commit -m "scan $(date -u +%Y-%m-%d)"
+          git push
+
+  # Monthly gap ledger. Separate job so a failure here never blocks the scan.
+  #
+  # Gated to scheduled runs, so with the `schedule:` trigger commented out above
+  # this job never fires — including on a manual dispatch, which is deliberate:
+  # the ledger is a monthly summary, not something to generate on demand. Run it
+  # locally instead with `python -m agent.upskill --html`.
+  upskill:
+    if: github.event_name == 'schedule'
+    needs: scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Generate gap ledger on the 1st of the month
+        run: |
+          if [ "$(date -u +%d)" = "01" ]; then
+            pip install -r requirements.txt
+            git pull --rebase || true
+            python -m agent.upskill --html
+          else
+            echo "not the 1st; skipping"
+          fi
+      - name: Email ledger
+        if: success() && hashFiles('upskill.html') != ''
+        uses: dawidd6/action-send-mail@v3
+        with:
+          server_address: smtp.gmail.com
+          server_port: 465
+          secure: true
+          username: ${{ secrets.MAIL_USERNAME }}
+          password: ${{ secrets.MAIL_PASSWORD }}
+          subject: "Skill gap ledger — monthly"
+          to: ${{ secrets.MAIL_TO }}
+          from: Job Agent
+          html_body: file://upskill.html

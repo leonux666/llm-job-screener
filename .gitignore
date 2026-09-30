@@ -1,0 +1,28 @@
+# Secrets: never commit
+.env
+
+# Your own configuration. Templates are tracked as *.example.*; the live files
+# describe you and stay local.
+config.yaml
+profile.md
+
+# Accumulated results. data/ is where the value builds up, but it is your job
+# log, not the project's, and jobs.jsonl contains scraped posting text plus
+# model output that names you.
+#
+# Written as `data/*` rather than `data/` so that .gitkeep can be re-included:
+# git cannot re-include a file whose parent DIRECTORY is excluded.
+data/*
+!data/.gitkeep
+outputs/
+*.jsonl
+
+# Generated reports
+digest.html
+upskill.html
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/

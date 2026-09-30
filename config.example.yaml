@@ -1,0 +1,309 @@
+# ---------------------------------------------------------------------------
+# Job agent configuration (EXAMPLE)
+#
+#   cp config.example.yaml config.yaml
+#
+# config.yaml is gitignored. Everything below is a working example tuned for
+# computational life science, not a recommendation: the keyword lists, title
+# tiers, deal-breakers and board tokens all describe one particular job search
+# and you should expect to replace them with your own.
+#
+# Two blocks decide whether this tool is useful to you:
+#   `sources:`, which companies it watches. The highest-leverage setting here.
+#   `keywords:`, the free filter that runs before any paid LLM call.
+#
+# If you already have a config.yaml with board tokens you verified using
+# `python -m agent.verify`, keep YOUR `sources:` block. Verification is real
+# work; do not overwrite it with the example list below.
+# ---------------------------------------------------------------------------
+
+report:
+  top_n: 5              # how many jobs to surface each day
+  triage_keep: 15       # how many survive Haiku triage and go to Sonnet
+  min_score: 55         # 0-100; below this, never report as a match
+  near_miss: 3          # how many to show when nothing clears min_score
+
+  # Optional standing line at the bottom of every digest. Leave empty to omit.
+  # Useful for context that applies to every run: an availability date, or a
+  # reminder of what the digest is and is not for.
+  footer_note: ""
+
+models:
+  triage: "claude-haiku-4-5"
+  deep: "claude-sonnet-5-5"
+
+# ---------------------------------------------------------------------------
+# Keyword gate. Title must match an `include` term and no `exclude` term.
+# Runs BEFORE any LLM call, so it is the main cost lever.
+#
+# Terms are lowercased substrings, not words: "bioinformatic" matches both
+# "Bioinformatics" and "Bioinformatician". Be loose on `include` and strict on
+# `exclude`: an extra LLM call is cheap, a missed opening is not.
+# ---------------------------------------------------------------------------
+keywords:
+  include:
+    - bioinformatic
+    - computational biolog
+    - computational genomic
+    - computational scientist
+    - genomic
+    - sequencing
+    - transcriptomic
+    - rna-seq
+    - single-cell
+    - variant
+    - biostatistic
+    - statistical genetic
+    - machine learning
+    - data scientist
+    - research scientist
+    - scientist i
+    - scientist ii
+    - associate scientist
+
+  exclude:
+    - director
+    - vp
+    - vice president
+    - head of
+    - principal
+    - manager
+    - sales
+    - account
+    - business development
+    - marketing
+    - recruiter
+    - intern
+    - clinical research coordinator
+    - study coordinator
+    - nurse
+    - quality control
+    - manufacturing
+    - validation engineer
+    - clinical laboratory
+    - medical technologist
+    - laboratory technologist
+    - medical laboratory
+    - phlebotom
+    - histotech
+    - cytotech
+
+# ---------------------------------------------------------------------------
+# Title tiering. Checked BELOW-TARGET FIRST, because "Sr. Associate Scientist"
+# contains the substring "scientist" and would otherwise pass as on-target.
+#
+# `below_target` means a title that would screen you out, either as
+# overqualified or as a step down. It is not the same as "a job you dislike";
+# that is what `deal_breakers` is for.
+# ---------------------------------------------------------------------------
+title_tiers:
+  below_target:
+    - associate scientist
+    - clinical laboratory scientist
+    - medical laboratory scientist
+    - medical technologist
+    - laboratory technologist
+    - clinical laboratory technologist
+    - research associate
+    - research technician
+    - technician
+    - specialist
+    - coordinator
+    - lab assistant
+    - laboratory assistant
+    - associate computational biologist
+  at_or_above:
+    - scientist
+    - computational biologist
+    - bioinformatics scientist
+    - research scientist
+    - biostatistician
+    - fellow
+
+# ---------------------------------------------------------------------------
+# Location tiers. Matched as lowercased substrings against the posting's
+# location string. All four keys are optional.
+#
+#   remote / nearby: recorded for reporting only, never filtered
+#   excluded: the ONE geographic reason a posting is dropped. Use it for
+#             places you genuinely cannot accept a role in.
+#
+# Delete this whole block and every posting is classified as "relocation" and
+# nothing is filtered by location. The example below suits someone who can only
+# work in the United States; change or remove it.
+# ---------------------------------------------------------------------------
+location_tiers:
+  remote:
+    - remote
+    - work from home
+    - distributed
+    - anywhere
+  # Metro areas within commuting distance, if any. Keep the empty list if you add
+  # none: a bare `nearby:` parses as null, not as an empty list.
+  nearby: []
+    # - boston
+  excluded:
+    - united kingdom
+    - germany
+    - switzerland
+    - china
+    - japan
+    - india
+    - singapore
+    - canada
+    - france
+    - ireland
+    - denmark
+    - sweden
+    - netherlands
+    - belgium
+    - spain
+    - italy
+    - australia
+    - korea
+    - brazil
+    - mexico
+    - israel
+    - poland
+    - czech
+
+# ---------------------------------------------------------------------------
+# Deal-breakers. Matched against the posting BODY with regex. A hit means the
+# posting is dropped before any LLM call: it is not scored, not reported, and
+# costs nothing. Logged so you can see what is being filtered.
+#
+# A deal-breaker is not "minus twenty points", it is "not a job I would take".
+# Keeping the two ideas apart stops vetoed roles from crowding the near-miss
+# list and keeps the score distribution meaningful.
+#
+# The citizenship pattern is commented out by default, because for most people it
+# would discard postings they are eligible for.
+# ---------------------------------------------------------------------------
+deal_breakers:
+  - pattern: "security clearance"
+    reason: "requires active security clearance"
+  - pattern: "\\btop secret\\b"
+    reason: "requires clearance"
+  # Optional: uncomment if you are not eligible for roles that require U.S.
+  # citizenship.
+  # - pattern: "must be a u\\.?s\\.? citizen"
+  #   reason: "citizenship requirement"
+  - pattern: "(recruit|enroll|consent)\\w*\\s+(study\\s+)?(participants|subjects|patients|volunteers)"
+    reason: "human subject recruitment"
+  - pattern: "(field application|technical support|customer success|account manage)"
+    reason: "customer-facing services role"
+
+# ---------------------------------------------------------------------------
+# Posting lifecycle tracking. Records how long requisitions stay open, which
+# tells you how far ahead of your target start date you need to begin applying.
+# ---------------------------------------------------------------------------
+lifecycle:
+  track_closures: true
+  # A posting absent from its board for this many consecutive runs is closed.
+  # More than 1 guards against a single flaky fetch marking everything closed.
+  absent_runs_to_close: 3
+
+# ---------------------------------------------------------------------------
+# ATS sources. No API key needed for greenhouse / lever / ashby /
+# smartrecruiters: these are the public job-board endpoints each platform
+# serves to its own careers pages.
+#
+# ⚠️  The tokens below are an EXAMPLE LIST, not a verified one. Some will be
+#     dead by the time you read this. Run `python -m agent.verify` and delete
+#     what fails.
+#
+# Find a company's platform with `python -m agent.discover <name>`.
+#
+# Bias this list toward companies whose actual work overlaps yours. Famous-name
+# employers are not the same thing: a company that posts mostly engineering
+# roles inflates the fetch count while contributing nothing scoreable.
+# ---------------------------------------------------------------------------
+sources:
+  greenhouse:
+    - 10xgenomics
+    - elementbiosciences
+    - twistbioscience
+    - natera            # large clinical-lab board; the keyword gate handles it
+    - freenome
+    - seres
+    - vedantabiosciences
+    - neumora
+    - ginkgobioworks
+    - arcadiascience
+    - vorbiopharma
+    - generatebiomedicines
+    - axle
+
+  lever:
+    - synthego
+    - viome
+    - alector
+
+  ashby:
+    - chaidiscovery
+    - insitro
+    - benchling
+
+  smartrecruiters:
+    - dnanexus
+    - legendbiotech
+    - AbbVie
+
+  # Workday tenants. INTENTIONALLY EMPTY (you add your own).
+  #
+  # Unlike the platforms above, the Workday fetcher reads an undocumented
+  # endpoint that a careers page calls to render itself (see the README). No
+  # employer's tenant is listed here as an example, because shipping a ready-made
+  # list would amount to suggesting those specific companies are fine to poll.
+  # Decide that yourself, per employer, against their terms.
+  #
+  # Keep the empty list below if you add none: `workday:` with only comments
+  # under it parses as null, not as an empty list, and the fetch loop would fail.
+  #
+  # Find the values on the company's own careers URL, which has the shape
+  #   https://{tenant}.wdN.myworkdayjobs.com/{site}
+  # so https://examplecompany.wd5.myworkdayjobs.com/ExampleCareers gives:
+  #
+  #   - name: Example Company        # any label you like; used in logs only
+  #     host: "https://examplecompany.wd5.myworkdayjobs.com"
+  #     tenant: examplecompany
+  #     site: ExampleCareers
+  #
+  # Verify each one with `python -m agent.verify` after adding it.
+  workday: []
+
+  # ⚠️  KNOWN BUG: this key is currently ignored. See KNOWN_ISSUES.md.
+  # Workday tenants hold thousands of reqs across every function in the company.
+  # These search terms are what keeps the pull relevant. Without them the
+  # fetcher returns an arbitrary slice that is mostly sales and manufacturing.
+  workday_queries:
+    - bioinformatics
+    - computational biology
+    - genomics
+    - biostatistics
+    - data scientist
+    - research scientist
+
+  # Broad fallback. Free tier: 250 calls/day. Keys at developer.adzuna.com
+  adzuna:
+    enabled: true
+    country: us
+    queries:
+      - bioinformatics scientist
+      - computational biologist
+      - genomics scientist
+      - computational genomics
+      - RNA-seq analysis
+      - single-cell analysis
+      - statistical genetics
+      - machine learning genomics
+      - biostatistician
+      - data scientist genomics
+
+  # U.S. federal jobs (NIH, FDA, CDC, VA). Free key at developer.usajobs.gov
+  usajobs:
+    enabled: true
+    queries:
+      - bioinformatics
+      - computational biology
+      - genomics research
